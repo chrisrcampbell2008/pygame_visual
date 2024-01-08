@@ -34,9 +34,9 @@ DIVERSE_COLORS = [
     'darkseagreen', 'teal', 'darkcyan', 'indigo', 'darkolivegreen',
     'chocolate', 'darkgoldenrod', 'midnightblue', 'slateblue', 'seagreen'
 ]
-# IMAGE_PATH = "./Zeus_custom/note3.png"
-STARS = ["./Zeus_custom/images/star2.png", "./Zeus_custom/images/star3.png", "./Zeus_custom/images/star4.png", "./Zeus_custom/images/star5.png", "./Zeus_custom/images/star6.png"]
-MUSIC_NOTES = ["./Zeus_custom/music_notes/note3.png", "./Zeus_custom/music_notes/note4.png", "./Zeus_custom/music_notes/note5.png", "./Zeus_custom/music_notes/note6.png", "./Zeus_custom/music_notes/note7.png", "./Zeus_custom/music_notes/note8.png"]
+# IMAGE_PATH = "./note3.png"
+STARS = ["./images/star2.png", "./images/star3.png", "./images/star4.png", "./images/star5.png", "./images/star6.png"]
+MUSIC_NOTES = ["./music_notes/note3.png", "./music_notes/note4.png", "./music_notes/note5.png", "./music_notes/note6.png", "./music_notes/note7.png", "./music_notes/note8.png"]
 
 ## TOGGLES ##
 
