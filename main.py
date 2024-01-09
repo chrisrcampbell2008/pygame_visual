@@ -1,7 +1,6 @@
 import pygame as pg
 import math
 import random
-import colorsys
 
 
 vec2, vec3 = pg.math.Vector2, pg.math.Vector3
