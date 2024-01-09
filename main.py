@@ -141,7 +141,7 @@ class Star:
         
         if SIN_ROTATION:
             time_elapsed = pg.time.get_ticks() / 1000
-            oscillation_amplitude = 200
+            oscillation_amplitude = 50
             oscillation_frequency = 0.0001
             rotation_angle = math.sin(time_elapsed * oscillation_frequency) * oscillation_amplitude
             rotated_pos = self.rotate_vector(self.screen_pos, rotation_angle)
@@ -251,7 +251,7 @@ class Starfield:
             OPPOSITE_ROTATION = True
             self.refresh_stars(app)
         if keys[pg.K_2]:
-            NUM_STARS = 4000
+            NUM_STARS = 8000
             Z_DISTANCE = 40
             ALPHA = 1
             ROTATION_SPEED = .2
@@ -341,7 +341,7 @@ class Starfield:
             SCALE_POS -= 1
         if keys[pg.K_DOWN]:
             SCALE_POS += 1
-        SCALE_POS = max(20, min(40, SCALE_POS))
+        SCALE_POS = max(0, min(2, SCALE_POS))
 
         if keys[pg.K_LEFT]:
             ROTATION_SPEED -= .01
@@ -366,9 +366,6 @@ class App:
         self.starfield = Starfield(self)
         self.alpha_surface = pg.Surface(RES)
         self.alpha_surface.set_alpha(ALPHA)
-    
-    def update_alpha_surface(self):
-        self.starfield.update_alpha(self)
 
     def run(self, app):
         while True:
