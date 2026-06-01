@@ -48,6 +48,7 @@ SPACE_COLORS = [
 STARS = ["./images/star2.png", "./images/star3.png", "./images/star4.png", "./images/star5.png", "./images/star6.png"]
 MUSIC_NOTES = ["./music_notes/note3.png", "./music_notes/note4.png", "./music_notes/note5.png", "./music_notes/note6.png", "./music_notes/note7.png", "./music_notes/note8.png"]
 SPACE_IMAGE_FILES = sorted(glob.glob("./space_images/processed/*.png"))
+SUN_IMAGE_FILES   = sorted(glob.glob("./space_images/suns/processed/*.png"))
 
 ## TOGGLES ##
 
@@ -83,6 +84,7 @@ MAX_SHAPE_SIZE = 9999
 SPEED_MULTIPLIER = 1.0
 MOUSE_VANISHING_POINT = False
 NUM_NEBULAE = 0
+NUM_SUNS    = 0
 FLARE_STARS = False
 FLIGHT_ANGLE = vec2(0, 0)
 ROTATION_FLIGHT = False
@@ -135,23 +137,19 @@ class Star:
         return vec3(x, y, Z_DISTANCE)
 
     def update(self, time_elapsed):
-        if ROTATION_FLIGHT:
-            yaw   = FLIGHT_ANGLE.x * math.pi / 2
-            pitch = FLIGHT_ANGLE.y * math.pi / 2
-            cy, sy = math.cos(yaw), math.sin(yaw)
-            cp, sp = math.cos(pitch), math.sin(pitch)
-            v = self.vel * SPEED_MULTIPLIER
-            self.pos3d.x -= sy * cp * v
-            self.pos3d.y += sp * v
-            self.pos3d.z -= cy * cp * v
-            depth = sy * cp * self.pos3d.x - sp * self.pos3d.y + cy * cp * self.pos3d.z
-            if depth < 1 or self.pos3d.z < 0.5:
-                self.pos3d = self.get_pos3d(self.star_pos)
-        else:
-            self.pos3d.z -= self.vel * SPEED_MULTIPLIER
-            self.pos3d = self.get_pos3d(self.star_pos) if self.pos3d.z < 1 else self.pos3d
+        # Flight path always forward along Z — only the camera rotates
+        self.pos3d.z -= self.vel * SPEED_MULTIPLIER
+        self.pos3d = self.get_pos3d(self.star_pos) if self.pos3d.z < 1 else self.pos3d
 
-        vp = CENTER + vec2(FLIGHT_ANGLE.x * 280, FLIGHT_ANGLE.y * 180) if (MOUSE_VANISHING_POINT and not ROTATION_FLIGHT) else CENTER
+        if ROTATION_FLIGHT:
+            # Map FA through sin/cos so VP stays in sync with the background sphere:
+            # 0° = straight ahead (VP at centre), 90° = full side, 180° = back to centre
+            vp = CENTER + vec2(
+                FLIGHT_ANGLE.x * CENTER.x,
+               -FLIGHT_ANGLE.y * (HEIGHT // 2)
+            )
+        else:
+            vp = CENTER + vec2(FLIGHT_ANGLE.x * 280, FLIGHT_ANGLE.y * 180) if MOUSE_VANISHING_POINT else CENTER
         self.screen_pos = vec2(self.pos3d.x, self.pos3d.y) / max(self.pos3d.z, 0.5) + vp
 
         self.size_image = Z_DISTANCE / self.pos3d.z * .05
@@ -225,10 +223,23 @@ class Star:
                     pg.draw.line(self.screen, self.color, self.screen_pos, self.screen_pos, 1)
 
 class Nebula:
+    _in_use_paths = set()  # tracks image paths currently shown on screen
+
+    def _pick_unique_image(self):
+        if self.image_path:
+            Nebula._in_use_paths.discard(self.image_path)
+        available = [p for p in SPACE_IMAGE_FILES if p not in Nebula._in_use_paths]
+        if not available:
+            available = SPACE_IMAGE_FILES
+        self.image_path = random.choice(available)
+        Nebula._in_use_paths.add(self.image_path)
+        return get_image(self.image_path)
+
     def __init__(self, app, z_override=None, angle_sector=None):
         self.screen = app.screen
         self.vel = random.uniform(0.03, 0.07)
-        self.image = get_image(random.choice(SPACE_IMAGE_FILES))
+        self.image_path = None
+        self.image = self._pick_unique_image()
         self.screen_pos = vec2(0, 0)
         self.size = 0.1
         self.angle_sector = angle_sector  # (base_angle, width) or None
@@ -246,31 +257,84 @@ class Nebula:
         return vec3(x, y, z if z is not None else random.uniform(Z_DISTANCE * 0.7, Z_DISTANCE))
 
     def update(self, _time_elapsed):
-        if ROTATION_FLIGHT:
-            yaw   = FLIGHT_ANGLE.x * math.pi / 2
-            pitch = FLIGHT_ANGLE.y * math.pi / 2
-            cy, sy = math.cos(yaw), math.sin(yaw)
-            cp, sp = math.cos(pitch), math.sin(pitch)
-            v = self.vel * SPEED_MULTIPLIER
-            self.pos3d.x -= sy * cp * v
-            self.pos3d.y += sp * v
-            self.pos3d.z -= cy * cp * v
-            depth = sy * cp * self.pos3d.x - sp * self.pos3d.y + cy * cp * self.pos3d.z
-            if depth < 1 or self.pos3d.z < 0.5:
-                self.pos3d = self._spawn(z=random.uniform(Z_DISTANCE * 0.7, Z_DISTANCE))
-                self.image = get_image(random.choice(SPACE_IMAGE_FILES))
-        else:
-            self.pos3d.z -= self.vel * SPEED_MULTIPLIER
-            if self.pos3d.z < 1:
-                self.pos3d = self._spawn(z=random.uniform(Z_DISTANCE * 0.7, Z_DISTANCE))
-                self.image = get_image(random.choice(SPACE_IMAGE_FILES))
+        # Flight path always forward along Z — only the camera rotates
+        self.pos3d.z -= self.vel * SPEED_MULTIPLIER
+        if self.pos3d.z < 1:
+            self.pos3d = self._spawn(z=random.uniform(Z_DISTANCE * 0.7, Z_DISTANCE))
+            self.image = self._pick_unique_image()
 
-        vp = CENTER + vec2(FLIGHT_ANGLE.x * 280, FLIGHT_ANGLE.y * 180) if (MOUSE_VANISHING_POINT and not ROTATION_FLIGHT) else CENTER
+        if ROTATION_FLIGHT:
+            theta = FLIGHT_ANGLE.x * math.pi / 2
+            phi   = max(-math.pi/2, min(math.pi/2, FLIGHT_ANGLE.y * math.pi / 2))
+            vp = CENTER + vec2(math.sin(theta) * CENTER.x, -math.sin(phi) * (HEIGHT // 2))
+        else:
+            vp = CENTER + vec2(FLIGHT_ANGLE.x * 280, FLIGHT_ANGLE.y * 180) if MOUSE_VANISHING_POINT else CENTER
         self.screen_pos = vec2(self.pos3d.x, self.pos3d.y) / max(self.pos3d.z, 0.5) + vp
+
         self.size = Z_DISTANCE / self.pos3d.z * 0.22
 
     def draw(self):
         w = max(1, int(self.image.get_width() * self.size))
+        h = max(1, int(self.image.get_height() * self.size))
+        scaled = get_scaled(self.image, w, h)
+        rect = scaled.get_rect(center=(int(self.screen_pos.x), int(self.screen_pos.y)))
+        self.screen.blit(scaled, rect)
+
+
+class Sun:
+    """Floating star images — same mechanics as Nebula but from the suns image pool."""
+    _in_use_paths = set()
+
+    def _pick_unique_image(self):
+        if self.image_path:
+            Sun._in_use_paths.discard(self.image_path)
+        available = [p for p in SUN_IMAGE_FILES if p not in Sun._in_use_paths]
+        if not available:
+            available = SUN_IMAGE_FILES
+        self.image_path = random.choice(available)
+        Sun._in_use_paths.add(self.image_path)
+        return get_image(self.image_path)
+
+    def __init__(self, app, z_override=None, angle_sector=None):
+        self.screen = app.screen
+        self.vel = random.uniform(0.03, 0.07)
+        self.image_path = None
+        self.image = self._pick_unique_image()
+        self.screen_pos = vec2(0, 0)
+        self.size = 0.1
+        self.angle_sector = angle_sector
+        self.pos3d = self._spawn(z_override)
+
+    def _spawn(self, z=None):
+        if self.angle_sector:
+            base, width = self.angle_sector
+            angle = base + random.uniform(0, width)
+        else:
+            angle = random.uniform(0, 2 * math.pi)
+        radius = random.randrange(HEIGHT // 20, HEIGHT) * 20
+        x = radius * math.sin(angle)
+        y = radius * math.cos(angle)
+        if MOUSE_VANISHING_POINT:
+            x += FLIGHT_ANGLE.x * 320 * Z_DISTANCE
+            y += FLIGHT_ANGLE.y * 200 * Z_DISTANCE
+        return vec3(x, y, z if z is not None else random.uniform(Z_DISTANCE * 0.7, Z_DISTANCE))
+
+    def update(self, _time_elapsed):
+        self.pos3d.z -= self.vel * SPEED_MULTIPLIER
+        if self.pos3d.z < 1:
+            self.pos3d = self._spawn(z=random.uniform(Z_DISTANCE * 0.7, Z_DISTANCE))
+            self.image = self._pick_unique_image()
+        if ROTATION_FLIGHT:
+            theta = FLIGHT_ANGLE.x * math.pi / 2
+            phi   = max(-math.pi/2, min(math.pi/2, FLIGHT_ANGLE.y * math.pi / 2))
+            vp = CENTER + vec2(math.sin(theta) * CENTER.x, -math.sin(phi) * (HEIGHT // 2))
+        else:
+            vp = CENTER + vec2(FLIGHT_ANGLE.x * 280, FLIGHT_ANGLE.y * 180) if MOUSE_VANISHING_POINT else CENTER
+        self.screen_pos = vec2(self.pos3d.x, self.pos3d.y) / max(self.pos3d.z, 0.5) + vp
+        self.size = Z_DISTANCE / self.pos3d.z * 0.22
+
+    def draw(self):
+        w = max(1, int(self.image.get_width()  * self.size))
         h = max(1, int(self.image.get_height() * self.size))
         scaled = get_scaled(self.image, w, h)
         rect = scaled.get_rect(center=(int(self.screen_pos.x), int(self.screen_pos.y)))
@@ -282,9 +346,10 @@ class Starfield:
         self.initialize_stars(app)
 
     def initialize_stars(self, app):
+        Nebula._in_use_paths.clear()
+        Sun._in_use_paths.clear()
         self.outer_stars = self.create_stars(app, OUTER_STARS, "outer", 1)
         self.inner_stars = self.create_stars(app, INNER_STARS, "inner", 6)
-        # Stagger nebulae evenly across z so they don't all arrive at once
         if NUM_NEBULAE > 0:
             z_step = Z_DISTANCE / NUM_NEBULAE
             a_step = 2 * math.pi / NUM_NEBULAE
@@ -296,6 +361,17 @@ class Starfield:
             ]
         else:
             self.nebulae = []
+        if NUM_SUNS > 0 and SUN_IMAGE_FILES:
+            z_step = Z_DISTANCE / NUM_SUNS
+            a_step = 2 * math.pi / NUM_SUNS
+            self.suns = [
+                Sun(app,
+                    z_override=z_step * i + random.uniform(0, z_step),
+                    angle_sector=(a_step * i, a_step))
+                for i in range(NUM_SUNS)
+            ]
+        else:
+            self.suns = []
 
     def refresh_stars(self, app):
         self.initialize_stars(app)
@@ -309,7 +385,7 @@ class Starfield:
             return [Star(app, "shape", position) for _ in range(NUM_STARS // division_factor)]
 
     def run(self, app):
-        global WIGGLING_EFFECT, SIN_ROTATION, OUTER_COLORS, INNER_COLORS, SCALE_POS, ROTATION_SPEED, ALPHA, OUTER_SHAPE, INNER_SHAPE, GLOBAL_STARS, COLORS, NUM_STARS, Z_DISTANCE, VELOCITY, PULSE_EFFECT, MOUSE_ROTATION, OUTER_COLORS, OUTER_IMAGES, INNER_COLORS, INNER_IMAGES, INNER_SHAPE, OUTER_STARS, INNER_STARS, SHAPES, OPPOSITE_ROTATION, SPACE_COLORS, MAX_SHAPE_SIZE, SPEED_MULTIPLIER, MOUSE_VANISHING_POINT, NUM_NEBULAE, FLARE_STARS, ROTATION_FLIGHT
+        global WIGGLING_EFFECT, SIN_ROTATION, OUTER_COLORS, INNER_COLORS, SCALE_POS, ROTATION_SPEED, ALPHA, OUTER_SHAPE, INNER_SHAPE, GLOBAL_STARS, COLORS, NUM_STARS, Z_DISTANCE, VELOCITY, PULSE_EFFECT, MOUSE_ROTATION, OUTER_COLORS, OUTER_IMAGES, INNER_COLORS, INNER_IMAGES, INNER_SHAPE, OUTER_STARS, INNER_STARS, SHAPES, OPPOSITE_ROTATION, SPACE_COLORS, MAX_SHAPE_SIZE, SPEED_MULTIPLIER, MOUSE_VANISHING_POINT, NUM_NEBULAE, NUM_SUNS, FLARE_STARS, ROTATION_FLIGHT
 
         keys = pg.key.get_pressed()
         if keys[pg.K_0]:
@@ -318,7 +394,8 @@ class Starfield:
             GLOBAL_STARS = True
             self.refresh_stars(app)
         if keys[pg.K_1]:
-            ROTATION_FLIGHT = False
+            ROTATION_FLIGHT = True
+            NUM_SUNS = 100
             NUM_STARS = 2000
             Z_DISTANCE = 40
             ALPHA = 4
@@ -340,7 +417,7 @@ class Starfield:
             MAX_SHAPE_SIZE = 2
             SPEED_MULTIPLIER = 0.3
             MOUSE_VANISHING_POINT = True
-            NUM_NEBULAE = 12
+            NUM_NEBULAE = 6
             FLARE_STARS = True
             FLIGHT_ANGLE.x = 0
             FLIGHT_ANGLE.y = 0
@@ -350,6 +427,7 @@ class Starfield:
             SPEED_MULTIPLIER = 1.0
             MOUSE_VANISHING_POINT = False
             NUM_NEBULAE = 0
+            NUM_SUNS = 0
             FLARE_STARS = False
             ROTATION_FLIGHT = False
             FLIGHT_ANGLE.x = 0
@@ -382,6 +460,7 @@ class Starfield:
             SPEED_MULTIPLIER = 1.0
             MOUSE_VANISHING_POINT = False
             NUM_NEBULAE = 0
+            NUM_SUNS = 0
             FLARE_STARS = False
             ROTATION_FLIGHT = False
             FLIGHT_ANGLE.x = 0
@@ -410,6 +489,7 @@ class Starfield:
             SPEED_MULTIPLIER = 1.0
             MOUSE_VANISHING_POINT = False
             NUM_NEBULAE = 0
+            NUM_SUNS = 0
             FLARE_STARS = False
             ROTATION_FLIGHT = False
             FLIGHT_ANGLE.x = 0
@@ -436,6 +516,7 @@ class Starfield:
             SPEED_MULTIPLIER = 1.0
             MOUSE_VANISHING_POINT = False
             NUM_NEBULAE = 0
+            NUM_SUNS = 0
             FLARE_STARS = False
             ROTATION_FLIGHT = False
             FLIGHT_ANGLE.x = 0
@@ -464,13 +545,23 @@ class Starfield:
             OPPOSITE_ROTATION = True
             self.refresh_stars(app)
         if MOUSE_VANISHING_POINT:
-            mouse_pos = vec2(pg.mouse.get_pos())
-            FLIGHT_ANGLE.x = (mouse_pos.x - CENTER.x) / CENTER.x
-            FLIGHT_ANGLE.y = (mouse_pos.y - CENTER.y) / CENTER.y
+            if ROTATION_FLIGHT:
+                if keys[pg.K_LEFT]:
+                    FLIGHT_ANGLE.x = min(1.0, FLIGHT_ANGLE.x + 0.0035)
+                if keys[pg.K_RIGHT]:
+                    FLIGHT_ANGLE.x = max(-1.0, FLIGHT_ANGLE.x - 0.0035)
+                if keys[pg.K_UP]:
+                    FLIGHT_ANGLE.y = max(-2.0, FLIGHT_ANGLE.y - 0.0035)
+                if keys[pg.K_DOWN]:
+                    FLIGHT_ANGLE.y = min(2.0, FLIGHT_ANGLE.y + 0.0035)
+            else:
+                mouse_pos = vec2(pg.mouse.get_pos())
+                FLIGHT_ANGLE.x = (mouse_pos.x - CENTER.x) / CENTER.x
+                FLIGHT_ANGLE.y = (mouse_pos.y - CENTER.y) / CENTER.y
             if keys[pg.K_COMMA]:
-                SPEED_MULTIPLIER = max(0.1, SPEED_MULTIPLIER - 0.05)
+                SPEED_MULTIPLIER = max(0.0, SPEED_MULTIPLIER - 0.05)
             if keys[pg.K_PERIOD]:
-                SPEED_MULTIPLIER = min(10.0, SPEED_MULTIPLIER + 0.05)
+                SPEED_MULTIPLIER = min(20.0, SPEED_MULTIPLIER + 0.05)
         else:
             if keys[pg.K_UP]:
                 SCALE_POS -= 1
@@ -487,6 +578,7 @@ class Starfield:
             SPEED_MULTIPLIER = 1.0
             MOUSE_VANISHING_POINT = False
             NUM_NEBULAE = 0
+            NUM_SUNS = 0
             FLARE_STARS = False
             ROTATION_FLIGHT = False
             FLIGHT_ANGLE.x = 0
@@ -518,6 +610,7 @@ class Starfield:
             self.refresh_stars(app)
 
         if keys[pg.K_7]:
+            NUM_SUNS = 100
             NUM_STARS = 2000
             Z_DISTANCE = 40
             ALPHA = 4
@@ -539,9 +632,9 @@ class Starfield:
             MAX_SHAPE_SIZE = 2
             SPEED_MULTIPLIER = 0.3
             MOUSE_VANISHING_POINT = True
-            NUM_NEBULAE = 12
+            NUM_NEBULAE = 6
             FLARE_STARS = True
-            ROTATION_FLIGHT = True
+            ROTATION_FLIGHT = False
             FLIGHT_ANGLE.x = 0
             FLIGHT_ANGLE.y = 0
             self.refresh_stars(app)
@@ -552,7 +645,9 @@ class Starfield:
             star.update(time_elapsed)
         for nebula in self.nebulae:
             nebula.update(time_elapsed)
-        all_objects = all_stars + self.nebulae
+        for sun in self.suns:
+            sun.update(time_elapsed)
+        all_objects = all_stars + self.nebulae + self.suns
         all_objects.sort(key=lambda o: o.pos3d.z, reverse=True)
         for obj in all_objects:
             obj.draw()
@@ -564,15 +659,16 @@ class App:
         self.starfield = Starfield(self)
         self.alpha_surface = pg.Surface(RES)
         self.background = None
+        self.background_sphere = None
         bg_path = "./space_images/background/milkyway_large.jpg"
         if os.path.exists(bg_path):
             raw = pg.image.load(bg_path).convert()
             iw, ih = raw.get_size()
-            # Fit-height: scale so full panoramic band is visible
+
+            # Preset 1: narrow fit-height strip with subtle darkening
             bh = int(HEIGHT * 1.08)
             bw = max(int(iw * bh / ih), int(WIDTH * 1.08))
             bg = pg.transform.smoothscale(raw, (bw, bh))
-            # Pre-darken to ~5%
             dark = pg.Surface((bw, bh))
             dark.fill((13, 12, 16))
             bg.blit(dark, (0, 0), special_flags=pg.BLEND_MULT)
@@ -580,19 +676,59 @@ class App:
             self.bg_ox = -((bw - WIDTH) // 2)
             self.bg_oy = -((bh - HEIGHT) // 2)
 
+            # Preset 7: 8192×4096 equirectangular sky sphere (Blender-style 2:1 world image)
+            sphere_path = os.path.join(os.path.dirname(bg_path), "milkyway_sphere.jpg")
+            sphere_src = pg.image.load(sphere_path).convert() if os.path.exists(sphere_path) else raw
+            siw, sih = sphere_src.get_size()
+            # Scale to 4× screen width — full width = full 360°, height = 180°
+            sw = WIDTH * 4           # 6400px = 360°
+            sh = sw // 2             # 3200px = 180° (2:1 equirectangular)
+            sphere = pg.transform.smoothscale(sphere_src, (sw, sh))
+            dark7 = pg.Surface((sw, sh))
+            dark7.fill((64, 58, 77))  # ~25% brightness
+            sphere.blit(dark7, (0, 0), special_flags=pg.BLEND_MULT)
+            self.background_sphere = sphere
+            self.bg_sphere_cx = sw // 2        # forward = panorama centre
+            self.bg_sphere_cy = sh // 2
+            # scroll per FA unit: sw/4 → FA ±2 = ±180°, full 360° at FA ±4
+            self.bg_sphere_scroll_x = sw // 4  # 1600px per FA unit
+            # scroll_y: exactly reach the poles at FA.y = ±2 with no black edges
+            self.bg_sphere_scroll_y = (sh // 2 - HEIGHT // 2) // 2
+
     def run(self):
         while True:
             pg.mouse.set_visible(not MOUSE_VANISHING_POINT)
-            effective_alpha = max(2, min(50, int(20 / SPEED_MULTIPLIER))) if MOUSE_VANISHING_POINT else ALPHA
-            self.alpha_surface.set_alpha(effective_alpha)
-            self.screen.blit(self.alpha_surface, (0, 0))
+            if ROTATION_FLIGHT:
+                self.screen.fill((0, 0, 0))
+            else:
+                effective_alpha = max(2, min(50, int(20 / SPEED_MULTIPLIER))) if MOUSE_VANISHING_POINT and SPEED_MULTIPLIER > 0 else (255 if MOUSE_VANISHING_POINT else ALPHA)
+                self.alpha_surface.set_alpha(effective_alpha)
+                self.screen.blit(self.alpha_surface, (0, 0))
             if MOUSE_VANISHING_POINT and self.background:
-                bg_alpha = int(50 + min(max(SPEED_MULTIPLIER - 0.1, 0), 9.9) / 9.9 * 30)
-                self.background.set_alpha(bg_alpha)
-                bg_shift = 150 if ROTATION_FLIGHT else 70
-                bx = self.bg_ox - int(FLIGHT_ANGLE.x * bg_shift)
-                by = self.bg_oy - int(FLIGHT_ANGLE.y * int(bg_shift * 0.35))
-                self.screen.blit(self.background, (bx, by), special_flags=pg.BLEND_ADD)
+                if ROTATION_FLIGHT:
+                    bg_alpha = 220
+                else:
+                    bg_alpha = int(50 + min(max(SPEED_MULTIPLIER - 0.1, 0), 19.9) / 19.9 * 30)
+                if ROTATION_FLIGHT and self.background_sphere:
+                    bg_surface = self.background_sphere
+                    bg_surface.set_alpha(bg_alpha)
+                    sw = bg_surface.get_width()
+                    bx_raw = WIDTH  // 2 - self.bg_sphere_cx + int(FLIGHT_ANGLE.x * self.bg_sphere_scroll_x)
+                    by     = HEIGHT // 2 - self.bg_sphere_cy - int(FLIGHT_ANGLE.y * self.bg_sphere_scroll_y)
+                    # Wrap horizontally: normalise so image always starts before left edge
+                    bx = bx_raw % sw
+                    if bx > 0:
+                        bx -= sw
+                    self.screen.blit(bg_surface, (bx, by), special_flags=pg.BLEND_ADD)
+                    # Second copy fills the seam when first copy doesn't reach right edge
+                    if bx + sw < WIDTH:
+                        self.screen.blit(bg_surface, (bx + sw, by), special_flags=pg.BLEND_ADD)
+                elif self.background:
+                    bg_surface = self.background
+                    bg_surface.set_alpha(bg_alpha)
+                    bx = self.bg_ox - int(FLIGHT_ANGLE.x * 70)
+                    by = self.bg_oy - int(FLIGHT_ANGLE.y * 25)
+                    self.screen.blit(bg_surface, (bx, by), special_flags=pg.BLEND_ADD)
             self.starfield.run(self)
 
             pg.display.flip()
@@ -606,7 +742,7 @@ def apply_preset_1():
     global NUM_STARS, Z_DISTANCE, ALPHA, ROTATION_SPEED, VELOCITY, GLOBAL_STARS, PULSE_EFFECT
     global WIGGLING_EFFECT, MOUSE_ROTATION, SIN_ROTATION, SCALE_POS, OUTER_COLORS, INNER_COLORS
     global INNER_SHAPE, OUTER_SHAPE, OUTER_STARS, INNER_STARS, OPPOSITE_ROTATION
-    global MAX_SHAPE_SIZE, SPEED_MULTIPLIER, MOUSE_VANISHING_POINT, NUM_NEBULAE, FLARE_STARS
+    global MAX_SHAPE_SIZE, SPEED_MULTIPLIER, MOUSE_VANISHING_POINT, NUM_NEBULAE, NUM_SUNS, FLARE_STARS
     NUM_STARS = 2000; Z_DISTANCE = 40; ALPHA = 4; ROTATION_SPEED = 0
     VELOCITY = (0.06, 0.18); GLOBAL_STARS = True; PULSE_EFFECT = False
     WIGGLING_EFFECT = False; MOUSE_ROTATION = False; SIN_ROTATION = False; SCALE_POS = 20
@@ -614,8 +750,8 @@ def apply_preset_1():
     INNER_SHAPE = "Circle"; OUTER_SHAPE = "Circle"
     OUTER_STARS = "shape"; INNER_STARS = "shape"; OPPOSITE_ROTATION = False
     MAX_SHAPE_SIZE = 2; SPEED_MULTIPLIER = 0.3
-    MOUSE_VANISHING_POINT = True; NUM_NEBULAE = 12; FLARE_STARS = True
-    ROTATION_FLIGHT = False
+    MOUSE_VANISHING_POINT = True; NUM_NEBULAE = 6; NUM_SUNS = 100; FLARE_STARS = True
+    ROTATION_FLIGHT = True
     FLIGHT_ANGLE.x = 0; FLIGHT_ANGLE.y = 0
 
 if __name__ == '__main__':
