@@ -33,7 +33,6 @@ DIVERSE_COLORS = [
     'darkseagreen', 'teal', 'darkcyan', 'indigo', 'darkolivegreen',
     'chocolate', 'darkgoldenrod', 'midnightblue', 'slateblue', 'seagreen'
 ]
-# IMAGE_PATH = "./note3.png"
 STARS = ["./images/star2.png", "./images/star3.png", "./images/star4.png", "./images/star5.png", "./images/star6.png"]
 MUSIC_NOTES = ["./music_notes/note3.png", "./music_notes/note4.png", "./music_notes/note5.png", "./music_notes/note6.png", "./music_notes/note7.png", "./music_notes/note8.png"]
 
@@ -68,37 +67,38 @@ OUTER_STARS = "shape"
 INNER_STARS = "image"
 OPPOSITE_ROTATION = True
 
+# Images loaded once from disk; scaled surfaces cached by (surface id, w, h)
+_IMAGE_CACHE = {}
+_SCALE_CACHE = {}
+
+def get_image(path):
+    if path not in _IMAGE_CACHE:
+        _IMAGE_CACHE[path] = pg.image.load(path).convert_alpha()
+    return _IMAGE_CACHE[path]
+
+def get_scaled(surface, w, h):
+    key = (id(surface), w, h)
+    if key not in _SCALE_CACHE:
+        _SCALE_CACHE[key] = pg.transform.scale(surface, (w, h))
+    return _SCALE_CACHE[key]
+
+
 class Star:
     def __init__(self, app, star_type, star_pos):
         self.screen = app.screen
         self.pos3d = self.get_pos3d(star_pos)
         self.vel = random.uniform(*VELOCITY)
-        # self.vel = (random.uniform(0.05, 0.25)) if star_type == "image" else (random.uniform(0.25, 0.55))
         self.color = random.choice(INNER_COLORS) if star_pos == "inner" else random.choice(OUTER_COLORS)
         self.screen_pos = vec2(0, 0)
         self.size_image = .25
         self.size_shape = .01
-        self.image = pg.image.load(random.choice(OUTER_IMAGES)).convert_alpha()
-        self.inner_image = pg.image.load(random.choice(INNER_IMAGES)).convert_alpha()
+        image_list = OUTER_IMAGES if star_pos == "outer" else INNER_IMAGES
+        self.image = get_image(random.choice(image_list))
         self.image_rect = self.image.get_rect()
         self.star_type = star_type
         self.star_pos = star_pos
         self.wiggle_offset = random.uniform(0, 2 * math.pi)
 
-    # def get_pos3d(self, star_pos):
-    #     angle = random.uniform(0, 2 * math.pi)
-
-    #     if (GLOBAL_STARS):
-    #         radius = random.randrange(HEIGHT // SCALE_POS, HEIGHT) * SCALE_POS
-    #     elif (star_pos == "outer"):
-    #         radius = random.randrange(HEIGHT // 4, HEIGHT // 3) * SCALE_POS
-    #     else:
-    #         radius = random.randrange(HEIGHT // 4, HEIGHT // 3) * (SCALE_POS // 4)
-
-    #     x = radius * math.sin(angle)
-    #     y = radius * math.cos(angle) 
-    #     return vec3(x, y, Z_DISTANCE)
-        
     def get_pos3d(self, star_pos, scale_pos=35):
         angle = random.uniform(0, 2 * math.pi)
 
@@ -110,10 +110,10 @@ class Star:
             radius = random.randrange(HEIGHT // 4, HEIGHT // 3) * (scale_pos // 4)
 
         x = radius * math.sin(angle)
-        y = radius * math.cos(angle) 
+        y = radius * math.cos(angle)
         return vec3(x, y, Z_DISTANCE)
-    
-    def update(self):
+
+    def update(self, time_elapsed):
         self.pos3d.z -= self.vel
         self.pos3d = self.get_pos3d(self.star_pos) if self.pos3d.z < 1 else self.pos3d
 
@@ -122,13 +122,9 @@ class Star:
         self.size_shape = (Z_DISTANCE - self.pos3d.z) / (.02 * self.pos3d.z) * .25
 
         if (PULSE_EFFECT):
-            time_elapsed = pg.time.get_ticks() / 1000
-            pulsating_frequency = 3.0
-            pulsating_amplitude_shape = .5 
-            decay_factor = 0.95  # Adjust the decay factor to smooth out the pulsation
-            pulsating_factor_shape = 0.5 * math.sin(self.pos3d.z / 20 + pulsating_frequency * time_elapsed) + 1.5
-            self.size_shape = (Z_DISTANCE - self.pos3d.z) / (0.02 * self.pos3d.z) * 0.25 * pulsating_factor_shape * pulsating_amplitude_shape
-            self.size_shape *= decay_factor        
+            pulsating_factor_shape = 0.5 * math.sin(self.pos3d.z / 20 + 3.0 * time_elapsed) + 1.5
+            self.size_shape = (Z_DISTANCE - self.pos3d.z) / (0.02 * self.pos3d.z) * 0.25 * pulsating_factor_shape * 0.5
+            self.size_shape *= 0.95
 
         if (OPPOSITE_ROTATION):
             self.pos3d.xy = self.pos3d.xy.rotate(ROTATION_SPEED if self.star_pos != "inner" else -ROTATION_SPEED)
@@ -137,42 +133,33 @@ class Star:
             if (MOUSE_ROTATION):
                 mouse_pos = CENTER - vec2(pg.mouse.get_pos())
                 self.screen_pos += mouse_pos
-        
+
         if SIN_ROTATION:
-            time_elapsed = pg.time.get_ticks() / 1000
-            oscillation_amplitude = 50
-            oscillation_frequency = 0.0001
-            rotation_angle = math.sin(time_elapsed * oscillation_frequency) * oscillation_amplitude
+            rotation_angle = math.sin(time_elapsed * 0.0001) * 50
             rotated_pos = self.rotate_vector(self.screen_pos, rotation_angle)
             self.screen_pos = rotated_pos
 
         if (WIGGLING_EFFECT):
             wiggle_amplitude = 30
-            wiggle_frequency = 0.01
             self.screen_pos.x += math.sin(self.wiggle_offset) * wiggle_amplitude
             self.screen_pos.y += math.cos(self.wiggle_offset) * wiggle_amplitude
-            self.wiggle_offset += wiggle_frequency
+            self.wiggle_offset += 0.01
 
-    # USED FOR SIN ROTATION
     def rotate_vector(self, vector, angle):
         rotated_x = vector.x * math.cos(angle) - vector.y * math.sin(angle)
         rotated_y = vector.x * math.sin(angle) + vector.y * math.cos(angle)
         return vec2(rotated_x, rotated_y)
-    
+
     def draw(self):
         if (self.star_type == "image"):
             if (self.star_pos == "outer"):
-                image = self.image
-                scaled_width = int(image.get_width() * self.size_image)
-                scaled_height = int(image.get_height() * self.size_image)
-                scaled_image = pg.transform.scale(image, (scaled_width, scaled_height))
+                w = max(1, int(self.image.get_width() * self.size_image))
+                h = max(1, int(self.image.get_height() * self.size_image))
             else:
-                image = self.inner_image
-                scaled_width = int(image.get_width() * self.size_image) // 2
-                scaled_height = int(image.get_height() * self.size_image) // 2
-                scaled_image = pg.transform.scale(image, (scaled_width, scaled_height))
-            
-            self.image_rect.topleft = self.screen_pos - vec2(image.get_width() // 8, image.get_height() // 8)
+                w = max(1, int(self.image.get_width() * self.size_image) // 2)
+                h = max(1, int(self.image.get_height() * self.size_image) // 2)
+            scaled_image = get_scaled(self.image, w, h)
+            self.image_rect.topleft = self.screen_pos - vec2(self.image.get_width() // 8, self.image.get_height() // 8)
             self.screen.blit(scaled_image, self.image_rect)
         else:
             if (self.star_pos == "outer"):
@@ -199,7 +186,6 @@ class Starfield:
         self.inner_stars = self.create_stars(app, INNER_STARS, "inner", 6)
 
     def refresh_stars(self, app):
-        global OUTER_STARS, INNER_STARS
         self.initialize_stars(app)
 
     def create_stars(self, app, star_type, position, division_factor):
@@ -221,13 +207,9 @@ class Starfield:
             self.refresh_stars(app)
         if keys[pg.K_1]:
             NUM_STARS = 1500
-            # Z_DISTANCE toggle 20-100, default 40
             Z_DISTANCE = 40
-            # 1 -> 200
             ALPHA = 1
-            # -.1 -> .1
             ROTATION_SPEED = 0
-            # (0.02, 0.05)
             VELOCITY = (0.02, 0.05)
             GLOBAL_STARS = True
             PULSE_EFFECT = True
@@ -238,11 +220,9 @@ class Starfield:
             COLORS = [PASTEL_COLORS, SCIFI_COLORS, FOREST_COLORS, FIERY_COLORS, DIVERSE_COLORS]
             OUTER_COLORS = DIVERSE_COLORS
             INNER_COLORS = SCIFI_COLORS
-            # ("Circle", "Rectangle", "Line")
             SHAPES = ["Circle", "Rectangle", "Line"]
             INNER_SHAPE = "Circle"
             OUTER_SHAPE = "Line"
-            # ("mix", "shape", "image")
             OUTER_IMAGES = MUSIC_NOTES
             INNER_IMAGES = STARS
             OUTER_STARS = "shape"
@@ -273,7 +253,6 @@ class Starfield:
             INNER_STARS = "shape"
             OPPOSITE_ROTATION = True
             self.refresh_stars(app)
-            print("After setting to False:", SIN_ROTATION)
         if keys[pg.K_3]:
             NUM_STARS=1500
             Z_DISTANCE=50
@@ -340,43 +319,42 @@ class Starfield:
             SCALE_POS -= 1
         if keys[pg.K_DOWN]:
             SCALE_POS += 1
-        SCALE_POS = max(0, min(2, SCALE_POS))
+        SCALE_POS = max(1, min(100, SCALE_POS))
 
         if keys[pg.K_LEFT]:
             ROTATION_SPEED -= .01
-            # ROTATION_SPEED = max(-0.1, min(0.1, ROTATION_SPEED))
         if keys[pg.K_RIGHT]:
             ROTATION_SPEED += .01
-            # ROTATION_SPEED = max(-0.1, min(0.1, ROTATION_SPEED))
-        
-        # ALPHA = max(1, min(200, ALPHA))
-        # ANGLE_MOD = max(1,min(2, ANGLE_MOD))
 
+        time_elapsed = pg.time.get_ticks() / 1000
         all_stars = self.outer_stars + self.inner_stars
-        [star.update() for star in all_stars]
+        for star in all_stars:
+            star.update(time_elapsed)
         all_stars.sort(key=lambda star: star.pos3d.z, reverse=True)
-        [star.draw() for star in all_stars]
+        for star in all_stars:
+            star.draw()
 
-# PYTHON SETUP
 class App:
     def __init__(self):
         self.screen = pg.display.set_mode(RES)
         self.clock = pg.time.Clock()
         self.starfield = Starfield(self)
         self.alpha_surface = pg.Surface(RES)
-        self.alpha_surface.set_alpha(ALPHA)
 
-    def run(self, app):
+    def run(self):
         while True:
-            # self.screen.fill('black')
+            self.alpha_surface.set_alpha(ALPHA)
             self.screen.blit(self.alpha_surface, (0, 0))
-            self.starfield.run(app)
+            self.starfield.run(self)
 
             pg.display.flip()
-            [exit() for i in pg.event.get() if i.type == pg.QUIT]
+            for event in pg.event.get():
+                if event.type == pg.QUIT:
+                    pg.quit()
+                    return
             self.clock.tick(60)
 
 if __name__ == '__main__':
+    pg.init()
     app = App()
-    app.run(app)
-
+    app.run()
