@@ -736,6 +736,8 @@ class App:
                 if event.type == pg.QUIT:
                     pg.quit()
                     return
+                if event.type == pg.KEYDOWN and event.key == pg.K_f:
+                    pg.display.toggle_fullscreen()
             self.clock.tick(60)
 
 def apply_preset_1():
