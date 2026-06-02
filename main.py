@@ -547,9 +547,9 @@ class Starfield:
         if MOUSE_VANISHING_POINT:
             if ROTATION_FLIGHT:
                 if keys[pg.K_LEFT]:
-                    FLIGHT_ANGLE.x = min(1.0, FLIGHT_ANGLE.x + 0.0035)
+                    FLIGHT_ANGLE.x = min(1.0, FLIGHT_ANGLE.x + 0.00175)
                 if keys[pg.K_RIGHT]:
-                    FLIGHT_ANGLE.x = max(-1.0, FLIGHT_ANGLE.x - 0.0035)
+                    FLIGHT_ANGLE.x = max(-1.0, FLIGHT_ANGLE.x - 0.00175)
                 if keys[pg.K_UP]:
                     FLIGHT_ANGLE.y = max(-2.0, FLIGHT_ANGLE.y - 0.0035)
                 if keys[pg.K_DOWN]:
@@ -561,7 +561,7 @@ class Starfield:
             if keys[pg.K_COMMA]:
                 SPEED_MULTIPLIER = max(0.0, SPEED_MULTIPLIER - 0.05)
             if keys[pg.K_PERIOD]:
-                SPEED_MULTIPLIER = min(20.0, SPEED_MULTIPLIER + 0.05)
+                SPEED_MULTIPLIER = min(40.0, SPEED_MULTIPLIER + 0.05)
         else:
             if keys[pg.K_UP]:
                 SCALE_POS -= 1
@@ -708,7 +708,8 @@ class App:
                 if ROTATION_FLIGHT:
                     bg_alpha = 220
                 else:
-                    bg_alpha = int(50 + min(max(SPEED_MULTIPLIER - 0.1, 0), 19.9) / 19.9 * 30)
+                    alpha_max_speed_multiplier = 39.9  # Speed at which alpha reaches its maximum (255) when MOUSE_VANISHING_POINT is True
+                    bg_alpha = int(50 + min(max(SPEED_MULTIPLIER - 0.1, 0), alpha_max_speed_multiplier) / 39.9 * 30)
                 if ROTATION_FLIGHT and self.background_sphere:
                     bg_surface = self.background_sphere
                     bg_surface.set_alpha(bg_alpha)
@@ -736,6 +737,8 @@ class App:
                 if event.type == pg.QUIT:
                     pg.quit()
                     return
+                if event.type == pg.KEYDOWN and event.key == pg.K_f:
+                    pg.display.toggle_fullscreen()
             self.clock.tick(60)
 
 def apply_preset_1():
