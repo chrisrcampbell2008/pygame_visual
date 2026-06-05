@@ -547,13 +547,13 @@ class Starfield:
         if MOUSE_VANISHING_POINT:
             if ROTATION_FLIGHT:
                 if keys[pg.K_LEFT]:
-                    FLIGHT_ANGLE.x = min(1.0, FLIGHT_ANGLE.x + 0.00175)
+                    FLIGHT_ANGLE.x = min(1.0, FLIGHT_ANGLE.x + 0.0035)
                 if keys[pg.K_RIGHT]:
-                    FLIGHT_ANGLE.x = max(-1.0, FLIGHT_ANGLE.x - 0.00175)
+                    FLIGHT_ANGLE.x = max(-1.0, FLIGHT_ANGLE.x - 0.0035)
                 if keys[pg.K_UP]:
-                    FLIGHT_ANGLE.y = max(-2.0, FLIGHT_ANGLE.y - 0.0035)
+                    FLIGHT_ANGLE.y = max(-2.0, FLIGHT_ANGLE.y - 0.007)
                 if keys[pg.K_DOWN]:
-                    FLIGHT_ANGLE.y = min(2.0, FLIGHT_ANGLE.y + 0.0035)
+                    FLIGHT_ANGLE.y = min(2.0, FLIGHT_ANGLE.y + 0.007)
             else:
                 mouse_pos = vec2(pg.mouse.get_pos())
                 FLIGHT_ANGLE.x = (mouse_pos.x - CENTER.x) / CENTER.x
@@ -652,12 +652,127 @@ class Starfield:
         for obj in all_objects:
             obj.draw()
 
+class SpaceDiamond:
+    """Bipyramid 'spaceship' — two square pyramids joined at the base, shaded in orange/yellow."""
+
+    # Light flipped 180° — now from the front-right
+    _l = (0.33, -0.35, -0.87)
+    _lm = math.sqrt(_l[0]**2 + _l[1]**2 + _l[2]**2)
+    _LIGHT = (_l[0]/_lm, _l[1]/_lm, _l[2]/_lm)
+    del _l, _lm
+
+    def __init__(self, screen, cx, cy, scale=42):
+        self.screen = screen
+        self.cx = cx
+        self.cy = cy
+        self.scale = scale          # controls overall size
+
+    @staticmethod
+    def _cross_norm(v1, v2, v3):
+        ax, ay, az = v2[0]-v1[0], v2[1]-v1[1], v2[2]-v1[2]
+        bx, by, bz = v3[0]-v1[0], v3[1]-v1[1], v3[2]-v1[2]
+        nx, ny, nz = ay*bz-az*by, az*bx-ax*bz, ax*by-ay*bx
+        m = math.sqrt(nx*nx + ny*ny + nz*nz) + 1e-9
+        return nx/m, ny/m, nz/m
+
+    @staticmethod
+    def _dot(a, b):
+        return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
+
+    def _proj(self, x, y, z):
+        d = 3.5 + z
+        return (int(self.cx + x / d * self.scale * 2.2),
+                int(self.cy + y / d * self.scale * 2.2))
+
+    @staticmethod
+    def _shade(brightness):
+        t = max(0.0, min(1.0, brightness))
+        # Shadow = yellow, bright = neon green — shift green threshold lower
+        if t < 0.30:
+            s = t / 0.30
+            r = int(200 + 55  * s)   # deep yellow → bright yellow
+            g = int(160 + 80  * s)
+            b = 0
+        elif t < 0.60:
+            s = (t - 0.30) / 0.30
+            r = int(255 - 210 * s)   # yellow → lime green
+            g = int(240 + 15  * s)
+            b = int(0   + 50  * s)
+        else:
+            s = (t - 0.60) / 0.40
+            r = int(45  - 30  * s)   # lime → electric bright green / white-green
+            g = 255
+            b = int(50  + 205 * s)
+        return (min(255, r), min(255, g), min(255, b))
+
+    def _build_faces(self, time_elapsed):
+        """Return sorted face_data for a given time (reusable for trail + main draw)."""
+        angle = time_elapsed * 2.7          # spin speed (1.5× faster)
+        ty    = FLIGHT_ANGLE.y * math.pi / 5  # pitch — positive y = nose up
+
+        def tilt(v):
+            x, y, z = v
+            return x, y*math.cos(ty)-z*math.sin(ty), y*math.sin(ty)+z*math.cos(ty)
+
+        H = 1.5
+        ca, sa = math.cos(angle), math.sin(angle)
+        top = tilt((0.0, -H, 0.0))
+        bot = tilt((0.0,  H, 0.0))
+        sq  = [tilt(( ca,0, sa)), tilt((-sa,0, ca)),
+               tilt((-ca,0,-sa)), tilt(( sa,0,-ca))]
+
+        faces = [
+            (top,sq[0],sq[1]),(top,sq[1],sq[2]),(top,sq[2],sq[3]),(top,sq[3],sq[0]),
+            (bot,sq[1],sq[0]),(bot,sq[2],sq[1]),(bot,sq[3],sq[2]),(bot,sq[0],sq[3]),
+        ]
+        face_data = []
+        for verts in faces:
+            normal = self._cross_norm(*verts)
+            avg_z  = sum(v[2] for v in verts) / 3
+            bright = max(0.0, self._dot(normal, self._LIGHT))
+            face_data.append((avg_z, verts, bright))
+        face_data.sort(key=lambda f: -f[0])
+        return face_data
+
+    def draw(self, time_elapsed):
+        face_data = self._build_faces(time_elapsed)
+
+        # Glow: cycles 5%→20% in sync with ship rotation
+        spin   = time_elapsed * 2.7
+        t      = (math.sin(spin) + 1) / 2          # 0.0 → 1.0
+        bright = 0.05 + t * 0.15                    # 5% → 20%
+        gc     = (int(140 * bright), int(215 * bright), int(255 * bright))
+        orig_scale = self.scale
+        sz = int(orig_scale * 3.5)
+        surf = pg.Surface((sz * 2, sz * 2))
+        surf.fill((0, 0, 0))
+        ox, oy = self.cx - sz, self.cy - sz
+        saved_cx, saved_cy = self.cx, self.cy
+        self.cx, self.cy = sz, sz
+        for scale_mult in [1.55, 1.35, 1.18]:
+            self.scale = int(orig_scale * scale_mult)
+            for _, verts, _ in face_data:
+                pts2d = [self._proj(*v) for v in verts]
+                pg.draw.polygon(surf, gc, pts2d)
+        self.cx, self.cy = saved_cx, saved_cy
+        self.scale = orig_scale
+        self.screen.blit(surf, (ox, oy), special_flags=pg.BLEND_ADD)
+        for _, verts, bright in face_data:
+            color = self._shade(bright)
+            pts2d = [self._proj(*v) for v in verts]
+            pg.draw.polygon(self.screen, color, pts2d)
+            edge = tuple(max(0, c - 45) for c in color)
+            pg.draw.polygon(self.screen, edge, pts2d, 1)
+
+
 class App:
     def __init__(self):
         self.screen = pg.display.set_mode(RES)
         self.clock = pg.time.Clock()
         self.starfield = Starfield(self)
         self.alpha_surface = pg.Surface(RES)
+        # Spaceship diamond — center-x, halfway down the screen
+        self.diamond = SpaceDiamond(self.screen, WIDTH // 2, int(HEIGHT * 0.75), scale=42)
         self.background = None
         self.background_sphere = None
         bg_path = "./space_images/background/milkyway_large.jpg"
@@ -731,6 +846,13 @@ class App:
                     by = self.bg_oy - int(FLIGHT_ANGLE.y * 25)
                     self.screen.blit(bg_surface, (bx, by), special_flags=pg.BLEND_ADD)
             self.starfield.run(self)
+            if MOUSE_VANISHING_POINT:
+                keys = pg.key.get_pressed()
+                if keys[pg.K_z]:
+                    self.diamond.scale = min(180, self.diamond.scale + 1)
+                if keys[pg.K_x]:
+                    self.diamond.scale = max(42, self.diamond.scale - 1)
+                self.diamond.draw(pg.time.get_ticks() / 1000)
 
             pg.display.flip()
             for event in pg.event.get():
